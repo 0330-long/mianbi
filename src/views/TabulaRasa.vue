@@ -16,8 +16,8 @@
                 </el-radio-group>
                 <div>
                     <template v-if="item.mode === 'pen'">
-                        <el-color-picker v-model="item.color" show-alpha :predefine='checkColors' />
-                        <el-select v-model="item.lineWidth">
+                        <el-color-picker v-model="item.color" show-alpha :predefine='checkColors' @change="canvasDraw(index)"/>
+                        <el-select v-model="item.lineWidth" @change="canvasDraw(index)">
                             <!-- key -->
                             <el-option v-for="item in options" :key="item.value" :label="item.label"
                                 :value="item.value">
@@ -28,6 +28,7 @@
 
                 <div>
                     <el-button @click="removeTab(index,)">清屏</el-button>
+                    <el-button @click="deleteObject(index)">删除</el-button>
                     <el-button @click="rename(index)">重命名</el-button>
                 </div>
 
@@ -43,11 +44,12 @@ import 'element-plus/es/components/message-box/style/css'
 import eraser from '@/assets/img/eraser.png'
 import pen from '@/assets/img/pen.png'
 import "fabric/src/mixins/eraser_brush.mixin.js"
-import {    } from 'vue'
+import {  markRaw  } from 'vue'
 
 export default {
     data() {
         return {
+            selected: [],
             cursors: {
                 eraser,
                 pen,
@@ -123,20 +125,17 @@ export default {
                 const canvas = this.editableTabs[index].canvas
                 // canvas.clear()
                 let children = canvas.getObjects()
+                console.log(children);
                 if (children.length > 0) {
                     canvas.remove(...children)
                 }
-
-                // const index = this.editableTabs.findIndex(item => item.name === name)
-                // this.editableTabs.splice(index, 1)
-                // if (name !== this.editableTabsvalue) return
-                // if (index) {
-                //     this.editableTabsvalue = this.editableTabs[index - 1].name
-                // } else {
-                //     this.editableTabsvalue = this.editableTabs[0].name
-                // }
             } catch (error) {
             }
+        },
+
+        deleteObject(index){
+            const canvas = this.getCanvas(index)
+            canvas.remove(...this.selected)
         },
         // handleMouse(event, idx) {
         //     const ctx = event.target.getContext('2d')
@@ -177,19 +176,22 @@ export default {
         },
         canvasDraw(index) {
             const canvas = this.getCanvas(index)
-
-            if (this.editableTabs[index].mode === 'pen') {
+            const box=this.editableTabs[index]
+            const {mode}=box
+            if ( mode === 'pen') {
                 canvas.isDrawingMode = true
                 canvas.freeDrawingBrush = new fabric.PencilBrush(canvas)
-                canvas.freeDrawingBrush.width = this.editableTabs[index].lineWidth
-            } else if (this.editableTabs[index].mode === 'eraser') {
+                canvas.freeDrawingBrush.width = box.lineWidth
+                canvas.freeDrawingBrush.color = box.color
+            } else if ( mode === 'eraser') {
                 canvas.isDrawingMode = true
                 canvas.freeDrawingBrush = new fabric.EraserBrush(canvas)
                 canvas.freeDrawingBrush.width = 12
-            } else if (this.editableTabs[index].mode === 'rect') {
+            } else if (mode === 'rect') {
                 canvas.isDrawingMode = false
-            }
-
+            } else if(mode === 'select'){
+                canvas.isDrawingMode = false
+            } 
         },
         getCanvas(index) {
             const board = this.editableTabs[index]
@@ -223,6 +225,13 @@ export default {
                         canvas.add(rect)
                     }
                 })
+                //把选中的目标，保存在date里，再去删除，加上markRaw，为了防止VUE修改，保持原样，Vue3才需要
+                
+                canvas.on('selection:created', e =>{
+                    console.log(e);
+                    this.selected = markRaw(e.selected)
+                })
+                canvas.on('selection:updated', e => this.selected = markRaw(e.selected))
             }
             return canvas
         },
