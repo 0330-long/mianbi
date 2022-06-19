@@ -13,7 +13,7 @@ const router = createRouter({
       component:Base,
       children:[
         {
-          path:'page1',
+          path:'/',
           component:Users
         },
         {

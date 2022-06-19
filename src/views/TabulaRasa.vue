@@ -13,20 +13,23 @@
                     <el-radio-button label="eraser">橡皮檫</el-radio-button>
                     <el-radio-button label="rect">矩形</el-radio-button>
                     <el-radio-button label="select">选择</el-radio-button>
+                    <el-radio-button label="text">文本</el-radio-button>
                 </el-radio-group>
                 <div>
-                    <template v-if="item.mode === 'pen'">
-                        <el-color-picker v-model="item.color" show-alpha :predefine='checkColors' @change="canvasDraw(index)"/>
-                        <el-select v-model="item.lineWidth" @change="canvasDraw(index)">
+                   
+                        <el-color-picker v-if="['pen','rect','text'].includes(item.mode)" v-model="item.color" show-alpha :predefine='checkColors'
+                            @change="canvasDraw(index)" />
+                        <el-select v-if="item.mode === 'pen' " v-model="item.lineWidth" @change="canvasDraw(index)">
                             <!-- key -->
                             <el-option v-for="item in options" :key="item.value" :label="item.label"
                                 :value="item.value">
                             </el-option>
                         </el-select>
-                    </template>
+                   
                 </div>
 
                 <div>
+                    <el-button @click="undo(index)">撤销</el-button>
                     <el-button @click="removeTab(index,)">清屏</el-button>
                     <el-button @click="deleteObject(index)">删除</el-button>
                     <el-button @click="rename(index)">重命名</el-button>
@@ -44,12 +47,12 @@ import 'element-plus/es/components/message-box/style/css'
 import eraser from '@/assets/img/eraser.png'
 import pen from '@/assets/img/pen.png'
 import "fabric/src/mixins/eraser_brush.mixin.js"
-import {  markRaw  } from 'vue'
+import { markRaw } from 'vue'
+import 'fabric-history'
 
 export default {
     data() {
         return {
-            selected: [],
             cursors: {
                 eraser,
                 pen,
@@ -79,6 +82,13 @@ export default {
     methods: {
         init() {
             this.canvasWidth = this.$refs.tabs.$el.getBoundingClientRect().width
+            this.$nextTick(() => {
+                this.editableTabs.forEach((item, index) => {
+                    const canvas = this.getCanvas(index)
+                    canvas.setWidth(this.canvasWidth)
+                })
+            })
+
         },
         async cls(index) {
             try {
@@ -133,9 +143,10 @@ export default {
             }
         },
 
-        deleteObject(index){
+        deleteObject(index) {
             const canvas = this.getCanvas(index)
-            canvas.remove(...this.selected)
+            const selected = canvas.getActiveObjects()
+            canvas.remove(...selected)
         },
         // handleMouse(event, idx) {
         //     const ctx = event.target.getContext('2d')
@@ -176,22 +187,38 @@ export default {
         },
         canvasDraw(index) {
             const canvas = this.getCanvas(index)
-            const box=this.editableTabs[index]
-            const {mode}=box
-            if ( mode === 'pen') {
+            const box = this.editableTabs[index]
+            const { mode } = box
+            if (mode === 'pen') {
                 canvas.isDrawingMode = true
                 canvas.freeDrawingBrush = new fabric.PencilBrush(canvas)
                 canvas.freeDrawingBrush.width = box.lineWidth
                 canvas.freeDrawingBrush.color = box.color
-            } else if ( mode === 'eraser') {
+                canvas.skipTargetFind = true
+                fabric.Object.prototype.selectable = true
+            } else if (mode === 'eraser') {
                 canvas.isDrawingMode = true
                 canvas.freeDrawingBrush = new fabric.EraserBrush(canvas)
                 canvas.freeDrawingBrush.width = 12
+                canvas.skipTargetFind = false
+                fabric.Object.prototype.selectable = true
             } else if (mode === 'rect') {
                 canvas.isDrawingMode = false
-            } else if(mode === 'select'){
+                canvas.skipTargetFind = true
+                fabric.Object.prototype.selectable = false
+            } else if (mode === 'select') {
                 canvas.isDrawingMode = false
-            } 
+                canvas.skipTargetFind = false
+                fabric.Object.prototype.selectable = true
+            } else if (mode === 'text') {
+                canvas.isDrawingMode = false
+                canvas.skipTargetFind = false
+                fabric.Object.prototype.selectable = true
+            }
+        },
+        undo(index){
+            const canvas = this.getCanvas(index)
+            canvas.undo()
         },
         getCanvas(index) {
             const board = this.editableTabs[index]
@@ -199,39 +226,53 @@ export default {
             if (!canvas) {
                 const el = this.$refs.canvas[index]
                 canvas = new fabric.Canvas(el)
-                board.canvas =  markRaw(canvas)
-                if (board.mode === 'rect') {
-                    // canvas
-                }
+                board.canvas = markRaw(canvas)
                 let startX, startY
                 canvas.on('mouse:down', e => {
+                    startX = e.absolutePointer.x
+                    startY = e.absolutePointer.y
                     if (board.mode === 'rect') {
                         canvas.isDrawingMode = false
-                        const { x, y } = e.absolutePointer
-                        startX = x
-                        startY = y
+                        canvas.selectionColor = 'transparent'
+                        canvas.selectionBorderColor = board.color
+                    }
+                    if (board.mode === 'text') {
+                        if (!e.target || !e.target.text) {
+                            const text = new fabric.Textbox('', {
+                                stroke:'rgba(0,0,0,0.25)',
+                                fill: board.color,
+                                width:50,
+                                top:startY - 8,
+                                left:startX,
+                                fontSize: 16,
+                                lineHeight: 1,
+                                fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                            })
+                            canvas.add(text)
+                            text.enterEditing()
+                        }
                     }
                 })
                 canvas.on('mouse:up', e => {
                     if (board.mode === 'rect') {
-                        const { x, y } = e.absolutePointer
-                        const rect = new fabric.Rect({
-                            fill: board.color,
-                            top: startY,
-                            left: startX,
-                            width: Math.abs(x - startX),
-                            height: Math.abs(y - startY),
-                        })
-                        canvas.add(rect)
+                        const { x: endX, y: endY } = e.absolutePointer
+                        const tempW = Math.abs(endX - startX)
+                        const tempH = Math.abs(endY - startY)
+                        if (tempW > 3 && tempH > 3) {
+                            const rect = new fabric.Rect({
+                                fill: 'transparent',
+                                stroke: board.color,
+                                storkeWidth: 3,
+                                top: Math.min(startY, endY),
+                                left: Math.min(startX, endX),
+                                width: tempW - 3,
+                                height: tempH - 3,
+                            })
+
+                            canvas.add(rect)
+                        }
                     }
                 })
-                //把选中的目标，保存在date里，再去删除，加上markRaw，为了防止VUE修改，保持原样，Vue3才需要
-                
-                canvas.on('selection:created', e =>{
-                    console.log(e);
-                    this.selected = markRaw(e.selected)
-                })
-                canvas.on('selection:updated', e => this.selected = markRaw(e.selected))
             }
             return canvas
         },
